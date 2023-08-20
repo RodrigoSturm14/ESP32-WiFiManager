@@ -65,21 +65,21 @@ IPAddress subnet(255, 255, 0, 0);
 unsigned long previousMillis = 0;
 const long interval = 10000;  // interval to wait for Wi-Fi connection (milliseconds)
 
-// Initialize SPIFFS
+// --- Funcion Iniciar SPIFFS ---
 void initSPIFFS() {
   if (!SPIFFS.begin(true)) {
-    if (DEBUG)Serial.println("An error has occurred while mounting SPIFFS");
+    if (DEBUG) Serial.println("An error has occurred while mounting SPIFFS");
   }
-  if (DEBUG)Serial.println("SPIFFS mounted successfully");
+  if (DEBUG) Serial.println("SPIFFS mounted successfully");
 }
 
-// Read File from SPIFFS
+// --- Funcion Leer archivo SPIFFS ---
 String readFile(fs::FS& fs, const char* path) {
-  if (DEBUG)Serial.printf("Reading file: %s\r\n", path);
+  if (DEBUG) Serial.printf("Reading file: %s\r\n", path);
 
   File file = fs.open(path);
   if (!file || file.isDirectory()) {
-    if (DEBUG)Serial.println("- failed to open file for reading");
+    if (DEBUG) Serial.println("- failed to open file for reading");
     return String();
   }
 
@@ -91,33 +91,33 @@ String readFile(fs::FS& fs, const char* path) {
   return fileContent;
 }
 
-// Write file to SPIFFS
+// --- Funcion Escribir en archivo SPIFFS ---
 void writeFile(fs::FS& fs, const char* path, const char* message) {
-  if (DEBUG)Serial.printf("Writing file: %s\r\n", path);
+  if (DEBUG) Serial.printf("Writing file: %s\r\n", path);
 
   File file = fs.open(path, FILE_WRITE);
   if (!file) {
-    if (DEBUG)Serial.println("- failed to open file for writing");
+    if (DEBUG) Serial.println("- failed to open file for writing");
     return;
   }
   if (file.print(message)) {
-    if (DEBUG)Serial.println("- file written");
+    if (DEBUG) Serial.println("- file written");
   } else {
-    if (DEBUG)Serial.println("- write failed");
+    if (DEBUG) Serial.println("- write failed");
   }
 }
 
-// Initialize WiFi
+// --- Funcion Iniciar conexion red WiFi ---
 bool initWiFi() {
   digitalWrite(PIN_LED_R, HIGH);
   delay(500);
   if (ssid == "" || ip == "") {
-    if (DEBUG)Serial.println("Undefined SSID or IP address.");
+    if (DEBUG) Serial.println("Undefined SSID or IP address.");
     return false;
   }
 
   WiFi.begin(ssid.c_str(), pass.c_str());
-  if (DEBUG)Serial.println("Connecting to WiFi...");
+  if (DEBUG) Serial.println("Connecting to WiFi...");
 
   unsigned long currentMillis = millis();
   previousMillis = currentMillis;
@@ -130,12 +130,13 @@ bool initWiFi() {
     }
   }
 
-  if (DEBUG)Serial.println(WiFi.localIP());
+  if (DEBUG) Serial.println(WiFi.localIP());
   digitalWrite(PIN_LED_R, LOW);
   delay(500);
   return true;
 }
 
+// --- Funcion Iniciar conexion broker MQTT ---
 void initMQTT(String mqtt_url_broker, int mqtt_puerto) {
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -178,127 +179,7 @@ void initMQTT(String mqtt_url_broker, int mqtt_puerto) {
   }
 }
 
-void pinSetup() {
-  pinMode(PIN_BOTON, INPUT);
-  // declaracion de outputs
-  for (int i = 0; i < CANT_OUTPUT; i++) {
-    pinMode(pines_output[i], OUTPUT);
-  }
-  // deshabilitar relays
-  for (int i = 0; i < 4; i++) {
-    digitalWrite(pines_output[i], HIGH);
-  }
-  digitalWrite(PIN_LED_R, LOW);
-}
-
-
-void setup() {
-  // Serial port for debugging purposes
-  Serial.begin(115200);
-  pinSetup();
-
-  initSPIFFS();
-
-  // Load values saved in SPIFFS
-  ssid = readFile(SPIFFS, ssidPath);
-  pass = readFile(SPIFFS, passPath);
-  ip = readFile(SPIFFS, ipPath);
-  gateway = readFile(SPIFFS, gatewayPath);
-  if (DEBUG) {
-    Serial.println(ssid);
-    Serial.println(pass);
-    Serial.println(ip);
-    Serial.println(gateway);
-  }
-  
-  wifi_state = initWiFi();
-
-  if (wifi_state) {
-    initMQTT(mqtt_broker, mqtt_port);
-
-    while (digitalRead(PIN_BOTON) == 1 && WiFi.status() == WL_CONNECTED) {  // EL PROGRAMA VA ENTRAR Y REPETIR EL WHILE SIMPRE Y CUANDO NO SE ESTE PRESIONANDO EL BOTON Y EL ESP32 ESTE CONECTADO A UNA RED WIFI.
-      client.loop();
-    }
-  }
-
-  if (WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
-  digitalWrite(PIN_LED_V, LOW);
-  digitalWrite(PIN_LED_R, HIGH);
-
-  // Connect to Wi-Fi network with SSID and password
-  if (DEBUG)Serial.println("Setting AP (Access Point)");
-  // NULL sets an open Access Point
-  WiFi.softAP("ESP-WIFI-MANAGER", NULL);
-
-  IPAddress IP = WiFi.softAPIP();
-  if (DEBUG) {
-    Serial.print("AP IP address: ");
-    Serial.println(IP);
-  }
-
-  // Web Server Root URL
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
-    request->send(SPIFFS, "/wifimanager.html", "text/html");
-  });
-
-  server.serveStatic("/", SPIFFS, "/");
-
-  server.on("/", HTTP_POST, [](AsyncWebServerRequest * request) {
-    int params = request->params();
-    for (int i = 0; i < params; i++) {
-      AsyncWebParameter* p = request->getParam(i);
-      if (p->isPost()) {
-        // HTTP POST ssid value
-        if (p->name() == PARAM_INPUT_1) {
-          ssid = p->value().c_str();
-          if (DEBUG) {
-            Serial.print("SSID set to: ");
-            Serial.println(ssid);
-          }
-          // Write file to save value
-          writeFile(SPIFFS, ssidPath, ssid.c_str());
-        }
-        // HTTP POST pass value
-        if (p->name() == PARAM_INPUT_2) {
-          pass = p->value().c_str();
-          if (DEBUG) {
-            Serial.print("Password set to: ");
-            Serial.println(pass);
-          }
-          // Write file to save value
-          writeFile(SPIFFS, passPath, pass.c_str());
-        }
-        // HTTP POST ip value
-        if (p->name() == PARAM_INPUT_3) {
-          ip = p->value().c_str();
-          if (DEBUG) {
-            Serial.print("IP Address set to: ");
-            Serial.println(ip);
-          }
-          // Write file to save value
-          writeFile(SPIFFS, ipPath, ip.c_str());
-        }
-        // HTTP POST gateway value
-        if (p->name() == PARAM_INPUT_4) {
-          gateway = p->value().c_str();
-          if (DEBUG) {
-            Serial.print("Gateway set to: ");
-            Serial.println(gateway);
-          }
-          // Write file to save value
-          writeFile(SPIFFS, gatewayPath, gateway.c_str());
-        }
-        //Serial.printf("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
-      }
-    }
-    request->send(200, "text/plain", "Done. ESP will restart, connect to your router and go to IP address: " + ip);
-    delay(3000);
-    ESP.restart();
-  });
-  server.begin();
-
-}
-
+// --- Funcion Callback MQTT ---
 void callback(char *topic, byte *payload, unsigned int length) {  // here the message from the broker is trasmitted to the esp32 with the variable payload
 
   if (strcmp(topic, "TOMA1") == 0) {
@@ -432,6 +313,128 @@ void callback(char *topic, byte *payload, unsigned int length) {  // here the me
       client.publish("NOTIFICACION", "TOMA 4 DESACTIVADO - ESP32");
     }
   }
+}
+
+// --- Funcion Declaracion pines ---
+void pinSetup() {
+  pinMode(PIN_BOTON, INPUT);
+  // declaracion de outputs
+  for (int i = 0; i < CANT_OUTPUT; i++) {
+    pinMode(pines_output[i], OUTPUT);
+  }
+  // deshabilitar relays
+  for (int i = 0; i < 4; i++) {
+    digitalWrite(pines_output[i], HIGH);
+  }
+  digitalWrite(PIN_LED_R, LOW);
+}
+
+
+void setup() {
+  // Serial port for debugging purposes
+  Serial.begin(115200);
+  pinSetup();
+
+  initSPIFFS();
+
+  // Load values saved in SPIFFS
+  ssid = readFile(SPIFFS, ssidPath);
+  pass = readFile(SPIFFS, passPath);
+  ip = readFile(SPIFFS, ipPath);
+  gateway = readFile(SPIFFS, gatewayPath);
+  if (DEBUG) {
+    Serial.println(ssid);
+    Serial.println(pass);
+    Serial.println(ip);
+    Serial.println(gateway);
+  }
+  
+  wifi_state = initWiFi();
+
+  if (wifi_state) {
+    initMQTT(mqtt_broker, mqtt_port);
+
+    while (digitalRead(PIN_BOTON) == 1 && WiFi.status() == WL_CONNECTED) {  // EL PROGRAMA VA ENTRAR Y REPETIR EL WHILE SIMPRE Y CUANDO NO SE ESTE PRESIONANDO EL BOTON Y EL ESP32 ESTE CONECTADO A UNA RED WIFI.
+      client.loop();
+    }
+  }
+
+  if (WiFi.status() == WL_CONNECTED) WiFi.disconnect(true);
+  digitalWrite(PIN_LED_V, LOW);
+  digitalWrite(PIN_LED_R, HIGH);
+
+  // Connect to Wi-Fi network with SSID and password
+  if (DEBUG)Serial.println("Setting AP (Access Point)");
+  // NULL sets an open Access Point
+  WiFi.softAP("ESP-WIFI-MANAGER", NULL);
+
+  IPAddress IP = WiFi.softAPIP();
+  if (DEBUG) {
+    Serial.print("AP IP address: ");
+    Serial.println(IP);
+  }
+
+  // Web Server Root URL
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
+    request->send(SPIFFS, "/wifimanager.html", "text/html");
+  });
+
+  server.serveStatic("/", SPIFFS, "/");
+
+  server.on("/", HTTP_POST, [](AsyncWebServerRequest * request) {
+    int params = request->params();
+    for (int i = 0; i < params; i++) {
+      AsyncWebParameter* p = request->getParam(i);
+      if (p->isPost()) {
+        // HTTP POST ssid value
+        if (p->name() == PARAM_INPUT_1) {
+          ssid = p->value().c_str();
+          if (DEBUG) {
+            Serial.print("SSID set to: ");
+            Serial.println(ssid);
+          }
+          // Write file to save value
+          writeFile(SPIFFS, ssidPath, ssid.c_str());
+        }
+        // HTTP POST pass value
+        if (p->name() == PARAM_INPUT_2) {
+          pass = p->value().c_str();
+          if (DEBUG) {
+            Serial.print("Password set to: ");
+            Serial.println(pass);
+          }
+          // Write file to save value
+          writeFile(SPIFFS, passPath, pass.c_str());
+        }
+        // HTTP POST ip value
+        if (p->name() == PARAM_INPUT_3) {
+          ip = p->value().c_str();
+          if (DEBUG) {
+            Serial.print("IP Address set to: ");
+            Serial.println(ip);
+          }
+          // Write file to save value
+          writeFile(SPIFFS, ipPath, ip.c_str());
+        }
+        // HTTP POST gateway value
+        if (p->name() == PARAM_INPUT_4) {
+          gateway = p->value().c_str();
+          if (DEBUG) {
+            Serial.print("Gateway set to: ");
+            Serial.println(gateway);
+          }
+          // Write file to save value
+          writeFile(SPIFFS, gatewayPath, gateway.c_str());
+        }
+        //Serial.printf("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
+      }
+    }
+    request->send(200, "text/plain", "Done. ESP will restart, connect to your router and go to IP address: " + ip);
+    delay(3000);
+    ESP.restart();
+  });
+  server.begin();
+
 }
 
 void loop() {
