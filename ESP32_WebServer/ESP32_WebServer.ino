@@ -2,35 +2,7 @@
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
-#include <PubSubClient.h>
 #include "SPIFFS.h"
-
-// ---------  Depuracion  ---------
-#define DEBUG 1  // Cambiar el 0 por un 1 si se hacen prueb  as con el esp conectado al puerto serial.
-
-// ---------  Componentes OUTPUT & INPUT de Control  ---------
-#define CANT_OUTPUT 7
-#define PIN_BOTON 22
-#define PIN_LED_V 18
-#define PIN_LED_R 21
-#define PIN_LED_ESP 2
-#define PIN_RELAY_1 16
-#define PIN_RELAY_2 27
-#define PIN_RELAY_3 33
-#define PIN_RELAY_4 17
-bool button_state;
-
-int pines_output[CANT_OUTPUT] = { PIN_RELAY_1, PIN_RELAY_2, PIN_RELAY_3, PIN_RELAY_4, PIN_LED_V, PIN_LED_R, PIN_LED_ESP };
-
-// ---------  WiFi & Broker MQTT  ---------
-WiFiClient espClient;                        // Definir espClient como un objeto de la clase WiFiClient. c6ea7c
-PubSubClient client(espClient);              // Definir espClient como objeto de la clase PubSubClient. 271193841
-const char *mqtt_broker = "broker.emqx.io";  // Direccion del broker (SHIFTR, EMQX U OTRO BROKER).
-const char *mqtt_username = "RodSturm";      // Username para autenticacion.
-const char *mqtt_password = "racing2018";    // Password para autenticacion.
-const int mqtt_port = 1883;                  // Puerto MQTT sobre TCP.
-bool wifi_state;
-int PAYLOADINT;
 
 // Create AsyncWebServer object on port 80
 AsyncWebServer server(80);
@@ -40,6 +12,7 @@ const char* PARAM_INPUT_1 = "ssid";
 const char* PARAM_INPUT_2 = "pass";
 const char* PARAM_INPUT_3 = "ip";
 const char* PARAM_INPUT_4 = "gateway";
+
 
 //Variables to save values from HTML form
 String ssid;
@@ -80,33 +53,33 @@ void initSPIFFS() {
 }
 
 // Read File from SPIFFS
-String readFile(fs::FS& fs, const char* path) {
+String readFile(fs::FS &fs, const char * path){
   Serial.printf("Reading file: %s\r\n", path);
 
   File file = fs.open(path);
-  if (!file || file.isDirectory()) {
+  if(!file || file.isDirectory()){
     Serial.println("- failed to open file for reading");
     return String();
   }
-
+  
   String fileContent;
-  while (file.available()) {
+  while(file.available()){
     fileContent = file.readStringUntil('\n');
-    break;
+    break;     
   }
   return fileContent;
 }
 
 // Write file to SPIFFS
-void writeFile(fs::FS& fs, const char* path, const char* message) {
+void writeFile(fs::FS &fs, const char * path, const char * message){
   Serial.printf("Writing file: %s\r\n", path);
 
   File file = fs.open(path, FILE_WRITE);
-  if (!file) {
+  if(!file){
     Serial.println("- failed to open file for writing");
     return;
   }
-  if (file.print(message)) {
+  if(file.print(message)){
     Serial.println("- file written");
   } else {
     Serial.println("- write failed");
@@ -115,27 +88,27 @@ void writeFile(fs::FS& fs, const char* path, const char* message) {
 
 // Initialize WiFi
 bool initWiFi() {
-  if (ssid == "" || ip == "") {
+  if(ssid=="" || ip==""){
     Serial.println("Undefined SSID or IP address.");
     return false;
   }
 
-  // es necesario este bloque?
-  /*WiFi.mode(WIFI_STA);
+  WiFi.mode(WIFI_STA);
   localIP.fromString(ip.c_str());
   localGateway.fromString(gateway.c_str());
-  if (!WiFi.config(localIP, localGateway, subnet)) {
+
+
+  if (!WiFi.config(localIP, localGateway, subnet)){
     Serial.println("STA Failed to configure");
     return false;
-  }*/
-
+  }
   WiFi.begin(ssid.c_str(), pass.c_str());
   Serial.println("Connecting to WiFi...");
 
   unsigned long currentMillis = millis();
   previousMillis = currentMillis;
 
-  while (WiFi.status() != WL_CONNECTED) {
+  while(WiFi.status() != WL_CONNECTED) {
     currentMillis = millis();
     if (currentMillis - previousMillis >= interval) {
       Serial.println("Failed to connect.");
@@ -147,96 +120,61 @@ bool initWiFi() {
   return true;
 }
 
-void initMQTT(String mqtt_url_broker, int mqtt_puerto) {
-
-  if (WiFi.status() == WL_CONNECTED) {
-    if (DEBUG) Serial.println("Conectado a WiFi network");  // Si el ESP logro conectarse a la red WiFi, intntara conectarse al broker MQTT.
-
-    client.setServer(mqtt_broker, mqtt_port);
-    client.setCallback(callback);
-
-    while (!client.connected()) {
-
-      String client_id = "esp32-client-";
-      client_id += String(WiFi.macAddress());
-      if (DEBUG) Serial.printf("The client ------ %s ------ connects to the public mqtt broker\n", client_id.c_str());  // here the macAddress of the esp32 (which is a unique identifier for the esp32) is printed in the string variable client_id. then client_id is passed to a char arrays with the function c_str().
-      digitalWrite(PIN_LED_R, HIGH);
-      delay(1000);
-
-      if (client.connect(client_id.c_str(), mqtt_username, mqtt_password)) {  // here the esp32 will try to connect with the broker
-        if (DEBUG) Serial.println("Public emqx mqtt broker connected");
-        digitalWrite(PIN_LED_V, HIGH);
-        delay(200);
-        digitalWrite(PIN_LED_R, LOW);
-
-      } else {
-        if (DEBUG) {
-          Serial.print("failed with state ");
-          Serial.print(client.state());
-        }
-
-        digitalWrite(PIN_LED_R, LOW);
-        delay(2000);
-      }
+// Replaces placeholder with LED state value
+String processor(const String& var) {
+  if(var == "STATE") {
+    if(digitalRead(ledPin)) {
+      ledState = "ON";
     }
-
-    // --- Funciones Publish & Subscribe ---
-    client.publish("TOMA1", "Hola Shiftr y Celular soy ESP32 :] , escribiendo en TOMA1.");
-    client.subscribe("TOMA1");
-    client.subscribe("TOMA2");
-    client.subscribe("TOMA3");
-    client.subscribe("TOMA4");
-
-    delay(1000);
-    digitalWrite(PIN_LED_V, HIGH);
+    else {
+      ledState = "OFF";
+    }
+    return ledState;
   }
-}
-
-void pinSetup() {
-  pinMode(PIN_BOTON, INPUT);
-  // declaracion de outputs
-  for (int i = 0; i < CANT_OUTPUT; i++) {
-    pinMode(pines_output[i], OUTPUT);
-  }
-  // deshabilitar relays
-  for (int i = 0; i < 4; i++) {
-    digitalWrite(pines_output[i], HIGH);
-  }
+  return String();
 }
 
 void setup() {
   // Serial port for debugging purposes
   Serial.begin(115200);
-  pinSetup();
 
   initSPIFFS();
 
+  // Set GPIO 2 as an OUTPUT
+  pinMode(ledPin, OUTPUT);
+  digitalWrite(ledPin, LOW);
+  
   // Load values saved in SPIFFS
   ssid = readFile(SPIFFS, ssidPath);
   pass = readFile(SPIFFS, passPath);
   ip = readFile(SPIFFS, ipPath);
-  gateway = readFile(SPIFFS, gatewayPath);
+  gateway = readFile (SPIFFS, gatewayPath);
   Serial.println(ssid);
   Serial.println(pass);
   Serial.println(ip);
   Serial.println(gateway);
 
-  wifi_state = initWiFi();
+  if(initWiFi()) {
+    // Route for root / web page
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
+      request->send(SPIFFS, "/index.html", "text/html", false, processor);
+    });
+    server.serveStatic("/", SPIFFS, "/");
+    
+    // Route to set GPIO state to HIGH
+    server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request) {
+      digitalWrite(ledPin, HIGH);
+      request->send(SPIFFS, "/index.html", "text/html", false, processor);
+    });
 
-  if (wifi_state) {
-    initMQTT(mqtt_broker, mqtt_port);
-
-    while (digitalRead(PIN_BOTON) == 1 && WiFi.status() == WL_CONNECTED) {  // EL PROGRAMA VA ENTRAR Y REPETIR EL WHILE SIMPRE Y CUANDO NO SE ESTE PRESIONANDO EL BOTON Y EL ESP32 ESTE CONECTADO A UNA RED WIFI.
-      client.loop();
-    }
+    // Route to set GPIO state to LOW
+    server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request) {
+      digitalWrite(ledPin, LOW);
+      request->send(SPIFFS, "/index.html", "text/html", false, processor);
+    });
+    server.begin();
   }
   else {
-    // while ((digitalRead(PIN_BOTON) == 0) || (wifi_state == false)) {
-    /*if (wifi_state) {
-      WiFi.disconnect(true);
-      delay(200);
-    }*/
-    
     // Connect to Wi-Fi network with SSID and password
     Serial.println("Setting AP (Access Point)");
     // NULL sets an open Access Point
@@ -244,20 +182,20 @@ void setup() {
 
     IPAddress IP = WiFi.softAPIP();
     Serial.print("AP IP address: ");
-    Serial.println(IP);
+    Serial.println(IP); 
 
     // Web Server Root URL
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest * request) {
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
       request->send(SPIFFS, "/wifimanager.html", "text/html");
     });
-
+    
     server.serveStatic("/", SPIFFS, "/");
-
-    server.on("/", HTTP_POST, [](AsyncWebServerRequest * request) {
+    
+    server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
       int params = request->params();
-      for (int i = 0; i < params; i++) {
+      for(int i=0;i<params;i++){
         AsyncWebParameter* p = request->getParam(i);
-        if (p->isPost()) {
+        if(p->isPost()){
           // HTTP POST ssid value
           if (p->name() == PARAM_INPUT_1) {
             ssid = p->value().c_str();
@@ -301,140 +239,6 @@ void setup() {
   }
 }
 
-void callback(char *topic, byte *payload, unsigned int length) {  // here the message from the broker is trasmitted to the esp32 with the variable payload
-
-  if (strcmp(topic, "TOMA1") == 0) {
-    digitalWrite(PIN_LED_ESP, HIGH);
-    delay(500);
-    digitalWrite(PIN_LED_ESP, LOW);
-    if (DEBUG) {
-      Serial.print("Message arrived in topic: ");
-      Serial.println(topic);
-      Serial.print("Message: ");
-    }
-    for (int i = 0; i < length; i++) {
-      if (DEBUG) Serial.print((char)payload[i]);
-    }
-    char payload_string[length + 1];
-    memcpy(payload_string, payload, length);
-    payload_string[length] = '\0'; // se le agrega un NULL TERMINATED al final de la string, ya que de esa forma el programa sabe en donde termina la string.
-    PAYLOADINT = atoi(payload_string);
-    if (DEBUG) {
-      Serial.println();
-      Serial.print("Payload as a integer:");
-      Serial.print(PAYLOADINT);
-      Serial.println();
-      Serial.println("-----------------------");
-    }
-
-    if (PAYLOADINT == 1) {
-      digitalWrite(PIN_RELAY_1, LOW);  // PRENDER RELAY 1
-      client.publish("NOTIFICACION", "TOMA 1 ACTIVADO - ESP32");
-    } else if (PAYLOADINT == 0) {
-      digitalWrite(PIN_RELAY_1, HIGH);  // APAGAR RELAY 1
-      client.publish("NOTIFICACION", "TOMA 1 DESACTIVADO - ESP32");
-    }
-  }
-
-  else if (strcmp(topic, "TOMA2") == 0) {
-    digitalWrite(PIN_LED_ESP, HIGH);
-    delay(500);
-    digitalWrite(PIN_LED_ESP, LOW);
-    if (DEBUG) {
-      Serial.print("Message arrived in topic: ");
-      Serial.println(topic);
-      Serial.print("Message:");
-    }
-    for (int i = 0; i < length; i++) {
-      if (DEBUG) Serial.print((char)payload[i]);
-    }
-    char payload_string[length + 1];
-    memcpy(payload_string, payload, length);
-    payload_string[length] = '\0';
-    PAYLOADINT = atoi(payload_string);
-    if (DEBUG) {
-      Serial.println();
-      Serial.print("Payload as a integer:");
-      Serial.print(PAYLOADINT);
-      Serial.println();
-      Serial.println("-----------------------");
-    }
-
-    if (PAYLOADINT == 1) {
-      digitalWrite(PIN_RELAY_2, LOW);  // PRENDER RELAY 2.
-      client.publish("NOTIFICACION", "TOMA 2 ACTIVADO - ESP32");
-    } else if (PAYLOADINT == 0) {
-      digitalWrite(PIN_RELAY_2, HIGH);  // APAGAR RELAY 2.
-      client.publish("NOTIFICACION", "TOMA 2 DESACTIVADO - ESP32");
-    }
-  }
-
-  else if (strcmp(topic, "TOMA3") == 0) {
-    digitalWrite(PIN_LED_ESP, HIGH);
-    delay(500);
-    digitalWrite(PIN_LED_ESP, LOW);
-    if (DEBUG) {
-      Serial.print("Message arrived in topic: ");
-      Serial.println(topic);
-      Serial.print("Message:");
-    }
-    for (int i = 0; i < length; i++) {
-      if (DEBUG) Serial.print((char)payload[i]);
-    }
-    char payload_string[length + 1];
-    memcpy(payload_string, payload, length);
-    payload_string[length] = '\0';
-    PAYLOADINT = atoi(payload_string);
-    if (DEBUG) {
-      Serial.println();
-      Serial.print("Payload as a integer:");
-      Serial.print(PAYLOADINT);
-      Serial.println();
-      Serial.println("-----------------------");
-    }
-
-    if (PAYLOADINT == 1) {
-      digitalWrite(PIN_RELAY_3, LOW);  // PRENDER RELAY 3.
-      client.publish("NOTIFICACION", "TOMA 3 ACTIVADO - ESP32");
-    } else if (PAYLOADINT == 0) {
-      digitalWrite(PIN_RELAY_3, HIGH);  // APAGAR RELAY 3.
-      client.publish("NOTIFICACION", "TOMA 3 DESACTIVADO - ESP32");
-    }
-  }
-
-  else if (strcmp(topic, "TOMA4") == 0) {
-    digitalWrite(PIN_LED_ESP, HIGH);
-    delay(500);
-    digitalWrite(PIN_LED_ESP, LOW);
-    if (DEBUG) {
-      Serial.print("Message arrived in topic: ");
-      Serial.println(topic);
-      Serial.print("Message:");
-    }
-    for (int i = 0; i < length; i++) {
-      if (DEBUG) Serial.print((char)payload[i]);
-    }
-    char payload_string[length + 1];
-    memcpy(payload_string, payload, length);
-    payload_string[length] = '\0';
-    PAYLOADINT = atoi(payload_string);
-    if (DEBUG) {
-      Serial.println();
-      Serial.print("Payload as a integer:");
-      Serial.print(PAYLOADINT);
-      Serial.println();
-      Serial.println("-----------------------");
-    }
-
-    if (PAYLOADINT == 1) {
-      digitalWrite(PIN_RELAY_4, LOW);  // PRENDER RELAY 4.
-      client.publish("NOTIFICACION", "TOMA 4 ACTIVADO - ESP32");
-    } else if (PAYLOADINT == 0) {
-      digitalWrite(PIN_RELAY_4, HIGH);  // APAGAR RELAY 4.
-      client.publish("NOTIFICACION", "TOMA 4 DESACTIVADO - ESP32");
-    }
-  }
-}
-
 void loop() {
+
 }
